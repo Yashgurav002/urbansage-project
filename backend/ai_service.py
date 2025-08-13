@@ -1,196 +1,113 @@
 from transformers import pipeline
-import numpy as np
 from datetime import datetime
-import re
-from typing import Dict, List, Tuple
+from typing import Dict
+import os
 
 class UrbanSageAI:
     def __init__(self):
-        # Initialize the text classification pipeline
-        # Using DistilBERT - faster and smaller than BERT
-        # self.hf_token = os.getenv("HUGGINGFACE_TOKEN")
-        try:
-            self.classifier = pipeline(
-                "text-classification",
-                model="distilbert-base-uncased-finetuned-sst-2-english",
-                return_all_scores=True
-            )
-            print("✅ AI Classification model loaded successfully!")
-        except Exception as e:
-            print(f"❌ Error loading AI model: {e}")
-            self.classifier = None
-    
+        self.classifier = None  # Don't load at startup
+        self.model_name = "distilbert-base-uncased-finetuned-sst-2-english"
+
+    def load_model(self):
+        """
+        Load the Hugging Face model on demand
+        """
+        if self.classifier is None:
+            try:
+                print("⚡ Loading AI classification model...")
+                self.classifier = pipeline(
+                    "text-classification",
+                    model=self.model_name,
+                    return_all_scores=True
+                )
+                print("✅ AI model loaded successfully!")
+            except Exception as e:
+                print(f"❌ Error loading AI model: {e}")
+                self.classifier = None
+
     def classify_issue_type(self, title: str, description: str) -> Dict:
-        """
-        Classify urban issues into categories based on keywords and content
-        """
         text = f"{title} {description}".lower()
-        
-        # Define issue categories with keywords
         categories = {
             "infrastructure": {
-                "keywords": ["pothole", "road", "sidewalk", "bridge", "pavement", "construction", 
+                "keywords": ["pothole", "road", "sidewalk", "bridge", "pavement", "construction",
                            "street", "curb", "drainage", "sewer", "water", "pipe"],
-                "priority_base": 7,
-                "urgency_multiplier": 1.2
+                "priority_base": 7, "urgency_multiplier": 1.2
             },
             "lighting": {
-                "keywords": ["light", "lamp", "streetlight", "lighting", "dark", "bulb", 
+                "keywords": ["light", "lamp", "streetlight", "lighting", "dark", "bulb",
                            "electricity", "power", "illumination"],
-                "priority_base": 6,
-                "urgency_multiplier": 1.1
+                "priority_base": 6, "urgency_multiplier": 1.1
             },
             "safety": {
-                "keywords": ["unsafe", "danger", "crime", "accident", "emergency", "fire", 
+                "keywords": ["unsafe", "danger", "crime", "accident", "emergency", "fire",
                            "police", "violence", "security", "hazard"],
-                "priority_base": 9,
-                "urgency_multiplier": 1.5
+                "priority_base": 9, "urgency_multiplier": 1.5
             },
             "cleanliness": {
-                "keywords": ["trash", "garbage", "waste", "dirty", "cleaning", "litter", 
+                "keywords": ["trash", "garbage", "waste", "dirty", "cleaning", "litter",
                            "sanitation", "smell", "odor", "pest"],
-                "priority_base": 5,
-                "urgency_multiplier": 1.0
+                "priority_base": 5, "urgency_multiplier": 1.0
             },
             "transportation": {
-                "keywords": ["traffic", "bus", "transit", "parking", "vehicle", "car", 
+                "keywords": ["traffic", "bus", "transit", "parking", "vehicle", "car",
                            "bike", "bicycle", "signal", "sign", "crossing"],
-                "priority_base": 6,
-                "urgency_multiplier": 1.1
+                "priority_base": 6, "urgency_multiplier": 1.1
             },
             "environment": {
-                "keywords": ["pollution", "noise", "air", "water", "environment", "park", 
+                "keywords": ["pollution", "noise", "air", "water", "environment", "park",
                            "tree", "green", "nature", "wildlife"],
-                "priority_base": 6,
-                "urgency_multiplier": 1.0
+                "priority_base": 6, "urgency_multiplier": 1.0
             },
-            "general": {
-                "keywords": [],
-                "priority_base": 5,
-                "urgency_multiplier": 1.0
-            }
+            "general": {"keywords": [], "priority_base": 5, "urgency_multiplier": 1.0}
         }
-        
-        # Count keyword matches for each category
-        scores = {}
-        for category, data in categories.items():
-            if category == "general":
-                scores[category] = 1  # Default fallback
-                continue
-                
-            keyword_count = sum(1 for keyword in data["keywords"] if keyword in text)
-            scores[category] = keyword_count
-        
-        # Find the best matching category
+        scores = {cat: sum(1 for kw in data["keywords"] if kw in text) or 0 for cat, data in categories.items()}
         best_category = max(scores.items(), key=lambda x: x[1])
-        category_name = best_category[0]
-        
-        # If no specific keywords matched, use general
-        if best_category[1] == 0:
-            category_name = "general"
-        
+        category_name = best_category[0] if best_category[1] > 0 else "general"
         return {
             "category": category_name,
-            "confidence": min(best_category[1] / 3, 1.0),  # Normalize confidence
+            "confidence": min(best_category[1] / 3, 1.0),
             "priority_base": categories[category_name]["priority_base"],
             "urgency_multiplier": categories[category_name]["urgency_multiplier"]
         }
-    
+
     def analyze_sentiment(self, text: str) -> Dict:
-        """
-        Analyze sentiment to determine urgency level
-        """
+        self.load_model()  # Load model only when needed
         if not self.classifier:
             return {"sentiment": "neutral", "urgency_score": 0.5}
-            
         try:
-            results = self.classifier(text[:512])  # Limit text length
-            
-            # Find negative sentiment (indicates urgency/frustration)
-            negative_score = 0
-            positive_score = 0
-            
-            for result in results[0]:
-                if result['label'] == 'NEGATIVE':
-                    negative_score = result['score']
-                elif result['label'] == 'POSITIVE':
-                    positive_score = result['score']
-            
-            # Higher negative sentiment = higher urgency
-            urgency_score = negative_score
-            sentiment = "urgent" if negative_score > 0.7 else "moderate" if negative_score > 0.4 else "low"
-            
-            return {
-                "sentiment": sentiment,
-                "urgency_score": urgency_score,
-                "negative_confidence": negative_score,
-                "positive_confidence": positive_score
-            }
-            
+            results = self.classifier(text[:512])
+            neg_score = pos_score = 0
+            for res in results[0]:
+                if res['label'] == 'NEGATIVE':
+                    neg_score = res['score']
+                elif res['label'] == 'POSITIVE':
+                    pos_score = res['score']
+            urgency_score = neg_score
+            sentiment = "urgent" if neg_score > 0.7 else "moderate" if neg_score > 0.4 else "low"
+            return {"sentiment": sentiment, "urgency_score": urgency_score,
+                    "negative_confidence": neg_score, "positive_confidence": pos_score}
         except Exception as e:
             print(f"Sentiment analysis error: {e}")
             return {"sentiment": "neutral", "urgency_score": 0.5}
-    
+
     def calculate_priority_score(self, issue_data: Dict) -> Dict:
-        """
-        Calculate comprehensive priority score based on multiple factors
-        """
-        title = issue_data.get('title', '')
-        description = issue_data.get('description', '')
-        location = issue_data.get('location', '')
+        classification = self.classify_issue_type(issue_data.get('title', ''), issue_data.get('description', ''))
+        sentiment_analysis = self.analyze_sentiment(f"{issue_data.get('title', '')} {issue_data.get('description', '')}")
         created_at = issue_data.get('created_at', datetime.now())
-        
-        # 1. Classify issue type
-        classification = self.classify_issue_type(title, description)
-        
-        # 2. Analyze sentiment for urgency
-        full_text = f"{title} {description}"
-        sentiment_analysis = self.analyze_sentiment(full_text)
-        
-        # 3. Calculate time factor (newer issues get slight priority boost)
         if isinstance(created_at, str):
-            created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-        
+            from datetime import datetime as dt
+            created_at = dt.fromisoformat(created_at.replace('Z', '+00:00'))
         time_diff = (datetime.now() - created_at.replace(tzinfo=None)).total_seconds()
-        time_factor = max(0.8, 1.2 - (time_diff / 86400))  # Decreases over 24 hours
-        
-        # 4. Location factor (some areas might be more critical)
+        time_factor = max(0.8, 1.2 - (time_diff / 86400))
         location_factor = 1.0
-        critical_locations = ["downtown", "school", "hospital", "main street", "highway"]
-        if any(loc in location.lower() for loc in critical_locations):
+        if any(loc in issue_data.get('location', '').lower() for loc in ["downtown", "school", "hospital", "main street", "highway"]):
             location_factor = 1.2
-        
-        # 5. Urgency keywords detection
-        urgency_keywords = ["emergency", "urgent", "immediate", "danger", "broken", "flooded", "blocked"]
-        urgency_boost = 0.5
-        if any(keyword in full_text.lower() for keyword in urgency_keywords):
-            urgency_boost = 1.3
-        
-        # 6. Calculate final priority score (1-10 scale)
+        urgency_boost = 1.3 if any(kw in (issue_data.get('title', '') + issue_data.get('description', '')).lower() for kw in ["emergency", "urgent", "immediate", "danger", "broken", "flooded", "blocked"]) else 0.5
         base_score = classification["priority_base"]
         urgency_multiplier = classification["urgency_multiplier"]
         sentiment_multiplier = 1.0 + (sentiment_analysis["urgency_score"] * 0.3)
-        
-        final_score = (
-            base_score * 
-            urgency_multiplier * 
-            sentiment_multiplier * 
-            time_factor * 
-            location_factor * 
-            urgency_boost
-        )
-        
-        # Clamp to 1-10 range
-        final_score = max(1.0, min(10.0, final_score))
-        
-        # Determine priority level
-        if final_score >= 9.2:
-            priority_level = "HIGH"
-        elif final_score >= 7.0:
-            priority_level = "MEDIUM"
-        else:
-            priority_level = "LOW"
-        
+        final_score = max(1.0, min(10.0, base_score * urgency_multiplier * sentiment_multiplier * time_factor * location_factor * urgency_boost))
+        priority_level = "HIGH" if final_score >= 9.2 else "MEDIUM" if final_score >= 7.0 else "LOW"
         return {
             "category": classification["category"],
             "priority_score": round(final_score, 2),
@@ -206,5 +123,5 @@ class UrbanSageAI:
             }
         }
 
-# Global AI instance
+# Singleton AI service
 ai_service = UrbanSageAI()
