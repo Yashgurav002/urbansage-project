@@ -73,7 +73,8 @@ def get_ai_service():
 
 
 # Root endpoint
-@app.get("/")
+@app.get("/", include_in_schema=False)
+@app.head("/", include_in_schema=False)
 def read_root():
     return {
         "message": "UrbanSage AI API v3.0 is running!",
