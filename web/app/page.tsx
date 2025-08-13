@@ -83,7 +83,7 @@ export default function Home() {
   // Fetch statistics
   const fetchStats = async () => {
     try {
-      const response = await axios.get('${BASE_URL}/stats')
+      const response = await axios.get(`${BASE_URL}/stats`)
       setStats(response.data)
     } catch (error) {
       console.error('Error fetching stats:', error)
@@ -97,7 +97,7 @@ export default function Home() {
     setMessage('')
 
     try {
-      const response = await axios.post('${BASE_URL}/issues', formData)
+      const response = await axios.post(`${BASE_URL}/issues`, formData)
       setMessage('Issue analyzed with AI and saved to database!')
       setFormData({ title: '', description: '', location: '' })
       await fetchIssues()

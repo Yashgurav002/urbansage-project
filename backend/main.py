@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import func
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,15 +6,18 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
-from database import get_db, Issue
 from datetime import datetime
 
-# === Lazy load AI service ===
+from database import get_db, Issue
 from ai_service import UrbanSageAI
+
+# === Lazy load AI service ===
 ai_service = None  # Will initialize on first request
 
 
-# Pydantic models
+# ======================
+# Pydantic Models
+# ======================
 class IssueCreate(BaseModel):
     title: str
     description: str
@@ -46,23 +50,33 @@ class AIAnalysisResponse(BaseModel):
     factors: dict
 
 
-# Create FastAPI app
+# ======================
+# FastAPI App Config
+# ======================
 app = FastAPI(
     title="UrbanSage AI API",
     description="Smart City Issue Management with AI Classification",
     version="3.0.0"
 )
 
-# Enable CORS
+# CORS Settings - allow frontend + local dev
+origins = [
+    "http://localhost:3000",  # Local frontend
+    "https://urbansage.vercel.app"  # Production frontend
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,  # Only allow trusted domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+# ======================
+# Helper - Lazy AI Init
+# ======================
 def get_ai_service():
     """Lazy initialize AI service when needed."""
     global ai_service
@@ -72,10 +86,13 @@ def get_ai_service():
     return ai_service
 
 
-# Root endpoint
+# ======================
+# Routes
+# ======================
 @app.get("/", include_in_schema=False)
 @app.head("/", include_in_schema=False)
 def read_root():
+    """Root endpoint for health checks."""
     return {
         "message": "UrbanSage AI API v3.0 is running!",
         "status": "active",
@@ -84,13 +101,13 @@ def read_root():
     }
 
 
-# Get all issues
 @app.get("/issues", response_model=List[IssueResponse])
 def get_issues(
     priority: Optional[str] = None,
     category: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
+    """Fetch all issues, with optional filters."""
     query = db.query(Issue)
 
     if priority:
@@ -102,9 +119,9 @@ def get_issues(
     return issues
 
 
-# Create new issue
 @app.post("/issues", response_model=dict)
 def create_issue(issue: IssueCreate, db: Session = Depends(get_db)):
+    """Create a new issue with AI classification."""
     ai = get_ai_service()
 
     issue_data = {
@@ -146,9 +163,9 @@ def create_issue(issue: IssueCreate, db: Session = Depends(get_db)):
     }
 
 
-# AI analysis without saving
 @app.post("/analyze", response_model=AIAnalysisResponse)
 def analyze_issue(issue: IssueCreate):
+    """Analyze an issue with AI without saving it."""
     ai = get_ai_service()
 
     issue_data = {
@@ -162,9 +179,9 @@ def analyze_issue(issue: IssueCreate):
     return analysis
 
 
-# Get issues by priority
 @app.get("/issues/priority/{priority_level}")
 def get_issues_by_priority(priority_level: str, db: Session = Depends(get_db)):
+    """Get issues filtered by priority level."""
     issues = db.query(Issue).filter(
         Issue.priority_level == priority_level.upper()
     ).order_by(Issue.priority_score.desc()).all()
@@ -176,9 +193,9 @@ def get_issues_by_priority(priority_level: str, db: Session = Depends(get_db)):
     }
 
 
-# Get statistics
 @app.get("/stats")
 def get_statistics(db: Session = Depends(get_db)):
+    """Get statistics about issues."""
     total_issues = db.query(Issue).count()
 
     high_priority = db.query(Issue).filter(Issue.priority_level == "HIGH").count()
@@ -201,6 +218,9 @@ def get_statistics(db: Session = Depends(get_db)):
     }
 
 
+# ======================
+# Run Locally
+# ======================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
