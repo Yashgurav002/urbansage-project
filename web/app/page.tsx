@@ -3,6 +3,11 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 
+const BASE_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://urbansage-project.onrender.com"
+    : "http://localhost:8000";
+
 
 interface Issue {
   id: number
@@ -53,7 +58,7 @@ export default function Home() {
   // Fetch issues from API with filters
   const fetchIssues = async () => {
     try {
-      let url = 'http://localhost:8000/issues'
+      let url = `${BASE_URL}/issues`
       const params = new URLSearchParams()
       
       if (selectedCategory !== 'all') {
@@ -78,7 +83,7 @@ export default function Home() {
   // Fetch statistics
   const fetchStats = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/stats')
+      const response = await axios.get('${BASE_URL}/stats')
       setStats(response.data)
     } catch (error) {
       console.error('Error fetching stats:', error)
@@ -92,7 +97,7 @@ export default function Home() {
     setMessage('')
 
     try {
-      const response = await axios.post('http://localhost:8000/issues', formData)
+      const response = await axios.post('${BASE_URL}/issues', formData)
       setMessage('Issue analyzed with AI and saved to database!')
       setFormData({ title: '', description: '', location: '' })
       await fetchIssues()
